@@ -8,9 +8,9 @@ Built as a PM/engineering portfolio piece to demonstrate the key technical trade
 
 ## Live Demo
 
-**[https://github.com/mohamed-mattar/smartcart-checkout](https://github.com/mohamed-mattar/smartcart-checkout)**
+> Deploy this project on [Replit](https://replit.com) to get a live URL — click **Deploy** and your app will be available at a `.replit.app` domain.
 
-> To get the live app URL: deploy this project on [Replit](https://replit.com) and replace the link above with your `.replit.app` domain.
+**Source & portfolio:** [github.com/mohamed-mattar/smartcart-checkout](https://github.com/mohamed-mattar/smartcart-checkout)
 
 ---
 
@@ -92,14 +92,16 @@ cp .env.example .env
 # 4. Push the database schema
 pnpm --filter @workspace/db run push
 
-# 5. Start the servers (run each in a separate terminal)
-pnpm --filter @workspace/smartcart-vision run dev   # Frontend → http://localhost:5173
+# 5a. Start the frontend (root shortcut)
+pnpm dev                                            # Frontend → http://localhost:5173
+
+# 5b. Start the API server (separate terminal)
 pnpm --filter @workspace/api-server run dev         # API      → http://localhost:8082
 ```
 
 Then open `http://localhost:5173` in your browser and grant camera permission.
 
-> **Note:** The two servers must be started separately — there is no single root `pnpm dev` shortcut. The frontend (Vite) and API server (Express/esbuild) are independent packages in the monorepo.
+> **Note:** `pnpm dev` starts only the Vite frontend. The API server (analytics) must be started separately in a second terminal. Both are optional for the core camera demo — the frontend works standalone without the API.
 
 > **Note:** The ML model (~8 MB) loads from the TensorFlow.js CDN on first visit. Subsequent loads use the browser cache.
 

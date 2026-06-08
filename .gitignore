@@ -55,4 +55,6 @@ build/
 
 # Replit
 .cache/
-.local/
+.local/state/
+.local/skills/
+.local/secondary_skills/
