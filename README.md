@@ -8,7 +8,9 @@ Built as a PM/engineering portfolio piece to demonstrate the key technical trade
 
 ## Live Demo
 
-> Deploy this project on [Replit](https://replit.com) and update this link with your `.replit.app` URL.
+**[https://github.com/mohamed-mattar/smartcart-checkout](https://github.com/mohamed-mattar/smartcart-checkout)**
+
+> To get the live app URL: deploy this project on [Replit](https://replit.com) and replace the link above with your `.replit.app` domain.
 
 ---
 
@@ -77,7 +79,7 @@ smartcart-checkout/
 
 ```bash
 # 1. Clone
-git clone https://github.com/YOUR_USERNAME/smartcart-checkout.git
+git clone https://github.com/mohamed-mattar/smartcart-checkout.git
 cd smartcart-checkout
 
 # 2. Install dependencies
@@ -85,17 +87,19 @@ pnpm install
 
 # 3. Set environment variables
 cp .env.example .env
-# Edit .env — set DATABASE_URL to your PostgreSQL connection string
+# Edit .env and set DATABASE_URL to your PostgreSQL connection string
 
 # 4. Push the database schema
 pnpm --filter @workspace/db run push
 
-# 5. Start both servers
+# 5. Start the servers (run each in a separate terminal)
 pnpm --filter @workspace/smartcart-vision run dev   # Frontend → http://localhost:5173
-pnpm --filter @workspace/api-server run dev         # API     → http://localhost:8082
+pnpm --filter @workspace/api-server run dev         # API      → http://localhost:8082
 ```
 
 Then open `http://localhost:5173` in your browser and grant camera permission.
+
+> **Note:** The two servers must be started separately — there is no single root `pnpm dev` shortcut. The frontend (Vite) and API server (Express/esbuild) are independent packages in the monorepo.
 
 > **Note:** The ML model (~8 MB) loads from the TensorFlow.js CDN on first visit. Subsequent loads use the browser cache.
 
