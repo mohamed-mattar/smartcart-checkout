@@ -1,0 +1,17 @@
+{
+  "name": "SmartCart Checkout",
+  "short_name": "SmartCart",
+  "description": "Checkout-free retail vision — COCO-SSD object detection runs entirely on-device via TensorFlow.js.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0e14",
+  "theme_color": "#00e08a",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

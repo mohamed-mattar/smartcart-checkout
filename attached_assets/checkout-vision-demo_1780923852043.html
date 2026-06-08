@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SmartCart Vision — Edge CV Prototype</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tensorflow/4.20.0/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+<style>
+  :root {
+    --bg: #0a0e14;
+    --panel: #121821;
+    --panel-2: #1a222e;
+    --line: #243040;
+    --accent: #00e08a;
+    --accent-dim: #00946a;
+    --amber: #ffb02e;
+    --red: #ff5252;
+    --text: #e6edf3;
+    --text-dim: #8694a5;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "SF Mono", "JetBrains Mono", "Fira Code", monospace;
+    min-height: 100vh;
+    background-image: radial-gradient(circle at 20% 0%, rgba(0,224,138,0.06), transparent 40%),
+                      radial-gradient(circle at 80% 100%, rgba(255,176,46,0.04), transparent 40%);
+  }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 28px 24px 60px; }
+  header { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 6px; }
+  h1 { font-size: 22px; letter-spacing: -0.5px; font-weight: 700; }
+  h1 .mark { color: var(--accent); }
+  .subtitle { color: var(--text-dim); font-size: 13px; margin-bottom: 24px; max-width: 720px; line-height: 1.6; }
+  .badge { font-size: 11px; color: var(--accent); border: 1px solid var(--accent-dim); padding: 4px 10px; border-radius: 100px; white-space: nowrap; }
+  .grid { display: grid; grid-template-columns: 1.6fr 1fr; gap: 20px; }
+  @media (max-width: 920px) { .grid { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .panel-head { padding: 12px 16px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); display: inline-block; margin-right: 8px; transition: background .3s; }
+  .dot.live { background: var(--accent); box-shadow: 0 0 10px var(--accent); animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+  .video-stage { position: relative; background: #000; aspect-ratio: 4/3; display: flex; align-items: center; justify-content: center; }
+  video, canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
+  canvas { z-index: 2; }
+  .stage-msg { z-index: 3; text-align: center; color: var(--text-dim); font-size: 13px; padding: 20px; }
+  .stage-msg button { margin-top: 16px; }
+  button {
+    background: var(--accent); color: #04130c; border: none; padding: 10px 18px; border-radius: 8px;
+    font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; letter-spacing: .3px; transition: .2s;
+  }
+  button:hover { background: #00ffa0; transform: translateY(-1px); }
+  button.ghost { background: transparent; color: var(--text-dim); border: 1px solid var(--line); }
+  button.ghost:hover { color: var(--text); border-color: var(--text-dim); background: transparent; }
+  button:disabled { opacity: .4; cursor: not-allowed; transform: none; }
+  .controls { padding: 14px 16px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; border-top: 1px solid var(--line); }
+  .stat-row { display: flex; gap: 18px; margin-left: auto; font-size: 11px; color: var(--text-dim); }
+  .stat-row b { color: var(--accent); font-weight: 700; }
+  /* Cart */
+  .cart-items { padding: 8px 0; max-height: 340px; overflow-y: auto; }
+  .cart-item { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--panel-2); animation: slideIn .3s ease; }
+  @keyframes slideIn { from { opacity:0; transform: translateX(-8px) } to { opacity:1; transform:none } }
+  .cart-item .icon { width: 34px; height: 34px; border-radius: 8px; background: var(--panel-2); display:flex; align-items:center; justify-content:center; font-size:18px; }
+  .cart-item .meta { flex: 1; }
+  .cart-item .name { font-size: 13px; font-weight: 600; text-transform: capitalize; }
+  .cart-item .conf { font-size: 11px; color: var(--text-dim); }
+  .cart-item .price { font-size: 13px; color: var(--accent); font-weight: 700; }
+  .cart-empty { padding: 40px 16px; text-align: center; color: var(--text-dim); font-size: 13px; line-height: 1.6; }
+  .cart-total { padding: 16px; border-top: 1px solid var(--line); display:flex; justify-content: space-between; align-items:center; }
+  .cart-total .label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; }
+  .cart-total .amount { font-size: 24px; font-weight: 800; color: var(--accent); }
+  /* Log */
+  .log { padding: 10px 16px; font-size: 11px; line-height: 1.9; color: var(--text-dim); max-height: 150px; overflow-y:auto; }
+  .log .t { color: var(--accent-dim); }
+  .log .ev-add { color: var(--accent); }
+  .log .ev-remove { color: var(--amber); }
+  .log .ev-sys { color: var(--text-dim); }
+  /* PM notes */
+  .notes { margin-top: 24px; }
+  .notes-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  @media (max-width: 920px) { .notes-grid { grid-template-columns: 1fr; } }
+  .note-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
+  .note-card h3 { font-size: 12px; color: var(--accent); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; }
+  .note-card p { font-size: 12.5px; color: var(--text-dim); line-height: 1.65; }
+  .conf-control { display:flex; align-items:center; gap:10px; font-size:11px; color:var(--text-dim); }
+  input[type=range] { accent-color: var(--accent); }
+  footer { margin-top: 30px; font-size: 11px; color: var(--text-dim); text-align: center; line-height: 1.7; }
+  /* nav */
+  nav { display:flex; gap:8px; margin-bottom: 22px; }
+  nav button { background: var(--panel); color: var(--text-dim); border: 1px solid var(--line); font-weight: 600; }
+  nav button.active { background: var(--accent); color: #04130c; border-color: var(--accent); }
+  nav button:hover { transform: none; }
+  .page { display: none; }
+  .page.active { display: block; animation: fade .3s ease; }
+  @keyframes fade { from { opacity: 0 } to { opacity: 1 } }
+  /* explainer */
+  .doc { max-width: 860px; }
+  .doc h2 { font-size: 20px; color: var(--text); margin: 34px 0 12px; letter-spacing: -0.3px; }
+  .doc h2:first-child { margin-top: 8px; }
+  .doc h3 { font-size: 14px; color: var(--accent); margin: 22px 0 8px; text-transform: uppercase; letter-spacing: 1px; }
+  .doc p { font-size: 14px; color: var(--text-dim); line-height: 1.75; margin-bottom: 14px; }
+  .doc p b { color: var(--text); }
+  .doc ul { margin: 0 0 16px 20px; }
+  .doc li { font-size: 14px; color: var(--text-dim); line-height: 1.7; margin-bottom: 8px; }
+  .doc li b { color: var(--text); }
+  .timeline { border-left: 2px solid var(--line); margin: 16px 0 24px; padding-left: 0; }
+  .tl-item { position: relative; padding: 0 0 22px 24px; }
+  .tl-item::before { content:""; position:absolute; left:-7px; top:4px; width:12px; height:12px; border-radius:50%; background: var(--accent); box-shadow: 0 0 8px var(--accent-dim); }
+  .tl-item .yr { font-size: 12px; color: var(--accent); font-weight: 700; letter-spacing: .5px; }
+  .tl-item .ti { font-size: 14px; color: var(--text); font-weight: 600; margin: 2px 0 4px; }
+  .tl-item .de { font-size: 13px; color: var(--text-dim); line-height: 1.6; }
+  .callout { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; padding: 16px 18px; margin: 16px 0 22px; }
+  .callout p { margin: 0; font-size: 13.5px; }
+  .callout .ct { color: var(--accent); font-size: 11px; text-transform: uppercase; letter-spacing: 1px; font-weight: 700; margin-bottom: 6px; }
+  .flow { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin: 14px 0 22px; font-size: 12px; }
+  .flow .step { background: var(--panel-2); border:1px solid var(--line); border-radius:8px; padding:8px 12px; color: var(--text); }
+  .flow .arrow { color: var(--accent); font-weight: 700; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1><span class="mark">▣</span> SmartCart Vision</h1>
+    <span class="badge" id="modelBadge">● loading model…</span>
+  </header>
+  <p class="subtitle">
+    A browser-based prototype of checkout-free retail vision. A pre-trained convolutional neural network (COCO-SSD)
+    runs <b>entirely on-device</b> — no video ever leaves this machine — detecting items in real time and maintaining a
+    virtual cart as products enter and leave the frame. Built as a thinking exercise on the edge-inference and
+    detection-trust problems at the heart of unattended retail.
+  </p>
+
+  <nav>
+    <button class="active" data-page="demo">▣ Live Demo</button>
+    <button data-page="how">◈ How It Works</button>
+  </nav>
+
+  <div class="page active" id="page-demo">
+  <div class="grid">
+    <!-- Camera -->
+    <div class="panel">
+      <div class="panel-head">
+        <span><span class="dot" id="liveDot"></span> Live Camera Feed — Edge Inference</span>
+        <span id="fps">— ms / frame</span>
+      </div>
+      <div class="video-stage" id="stage">
+        <video id="video" autoplay muted playsinline></video>
+        <canvas id="canvas"></canvas>
+        <div class="stage-msg" id="stageMsg">
+          Grant camera access to begin.<br>
+          Hold up everyday objects — a bottle, cup, phone, book, banana.
+          <br>
+          <button id="startBtn" disabled>Loading model…</button>
+        </div>
+      </div>
+      <div class="controls">
+        <button id="toggleBtn" class="ghost" style="display:none;">Pause</button>
+        <div class="conf-control">
+          confidence ≥
+          <input type="range" id="confSlider" min="30" max="90" value="60" />
+          <span id="confVal">60%</span>
+        </div>
+        <div class="stat-row">
+          <span>detections <b id="detCount">0</b></span>
+          <span>session <b id="sessTime">0s</b></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Cart -->
+    <div class="panel">
+      <div class="panel-head"><span>Virtual Cart</span><span id="itemCount">0 items</span></div>
+      <div class="cart-items" id="cartItems">
+        <div class="cart-empty" id="cartEmpty">
+          Cart is empty.<br>Detected items will appear here automatically — and disappear when removed from frame, just like a real checkout-free store.
+        </div>
+      </div>
+      <div class="cart-total">
+        <span class="label">Running total</span>
+        <span class="amount" id="total">$0.00</span>
+      </div>
+      <div class="panel-head" style="border-top:1px solid var(--line);">Event Log</div>
+      <div class="log" id="log"><span class="ev-sys">[sys] awaiting camera…</span></div>
+    </div>
+  </div>
+
+  <!-- PM framing -->
+  <div class="notes">
+    <div class="notes-grid">
+      <div class="note-card">
+        <h3>Why edge inference</h3>
+        <p>The model runs in-browser via TensorFlow.js. Streaming raw video from hundreds of in-store cameras to the cloud is bandwidth-prohibitive — the same constraint I managed across millions of connected vehicles. The PM decision is what to compute locally vs. send up.</p>
+      </div>
+      <div class="note-card">
+        <h3>Detection trust = adoption</h3>
+        <p>The confidence threshold is the operating point on the precision/recall curve. Too low floods the cart with false adds; too high misses real items. Where you set it is a business decision about customer trust, not just a technical one.</p>
+      </div>
+      <div class="note-card">
+        <h3>What production adds</h3>
+        <p>A real system swaps COCO's 80 generic classes for a retail-specific model, fuses multiple camera angles to handle occlusion, and escalates low-confidence events to a cloud reasoning layer (a VLM) for the hard edge cases.</p>
+      </div>
+    </div>
+  </div>
+  </div><!-- /page-demo -->
+
+  <!-- ════════ HOW IT WORKS ════════ -->
+  <div class="page" id="page-how">
+    <div class="doc">
+      <h2>How this prototype works</h2>
+      <p>
+        When you start the camera, each video frame is passed to <b>COCO-SSD</b> — a convolutional neural network with a
+        MobileNet v2 backbone — running locally through TensorFlow.js. The model returns a list of detected objects, each with
+        a class label, a bounding box, and a confidence score. The app draws those boxes, then applies a small amount of
+        product logic on top.
+      </p>
+      <div class="flow">
+        <span class="step">Camera frame</span><span class="arrow">→</span>
+        <span class="step">CNN detects objects</span><span class="arrow">→</span>
+        <span class="step">Confidence filter</span><span class="arrow">→</span>
+        <span class="step">Debounce + presence logic</span><span class="arrow">→</span>
+        <span class="step">Virtual cart</span>
+      </div>
+      <p>
+        Two pieces of logic make it behave like a real store rather than a flickery demo. A <b>debounce</b> requires an item to
+        appear for several consecutive frames before it's added — this suppresses momentary false detections. A <b>presence
+        timeout</b> removes an item only after it has been gone from view for over a second — so brief occlusion (a hand passing
+        over a product) doesn't drop it from the cart. Both are deliberate trust safeguards, not happy-path shortcuts.
+      </p>
+      <div class="callout">
+        <div class="ct">The key control</div>
+        <p>The <b>confidence slider</b> sets the model's operating point. Lowering it catches more items but admits false adds;
+        raising it is safer but misses real items. In a real checkout-free store, where you set that threshold is a business
+        decision about customer trust and shrink — the same precision/recall tradeoff you'd read off an ROC curve.</p>
+      </div>
+
+      <h2>A short history of how machines learned to see</h2>
+      <p>
+        Computer vision didn't start with deep learning. It's the product of six decades of work, and the breakthrough ideas
+        trace back further than most people expect — to a pair of neuroscientists studying cats.
+      </p>
+
+      <div class="timeline">
+        <div class="tl-item">
+          <div class="yr">1959–1962 · THE BIOLOGY</div>
+          <div class="ti">Hubel &amp; Wiesel discover orientation-selective neurons</div>
+          <div class="de">Recording from a cat's visual cortex, they found individual neurons that fire only for a line at a
+          specific angle, or motion in a specific direction. Vision is built hierarchically: simple features first, combined
+          into complex ones layer by layer. They won the 1981 Nobel Prize — and unknowingly wrote the blueprint for the CNN.</div>
+        </div>
+        <div class="tl-item">
+          <div class="yr">1980 · THE ARCHITECTURE</div>
+          <div class="ti">Fukushima's Neocognitron</div>
+          <div class="de">A neural network directly inspired by Hubel &amp; Wiesel, stacking layers of simple and complex
+          feature detectors. The conceptual ancestor of every CNN that followed.</div>
+        </div>
+        <div class="tl-item">
+          <div class="yr">1989–1998 · THE METHOD</div>
+          <div class="ti">LeCun's LeNet learns the filters</div>
+          <div class="de">Yann LeCun combined convolution with backpropagation so the network could <b>learn</b> its feature
+          detectors from data instead of having them hand-designed. LeNet read handwritten digits on real bank checks — the
+          first CNN doing useful work at scale.</div>
+        </div>
+        <div class="tl-item">
+          <div class="yr">2012 · THE EXPLOSION</div>
+          <div class="ti">AlexNet wins ImageNet</div>
+          <div class="de">A deep CNN crushed the ImageNet competition, cutting error rates dramatically and beating every
+          hand-engineered approach. Trained on GPUs, it kicked off the modern deep-learning era of computer vision.</div>
+        </div>
+        <div class="tl-item">
+          <div class="yr">2015–2016 · REAL-TIME DETECTION</div>
+          <div class="ti">SSD &amp; YOLO make detection fast</div>
+          <div class="de">Earlier detectors were accurate but slow. Single-shot detectors like <b>SSD</b> (the "SSD" in
+          COCO-SSD) and YOLO detect and localize many objects in one pass — fast enough for live video. This prototype uses
+          exactly that lineage.</div>
+        </div>
+        <div class="tl-item">
+          <div class="yr">2020–2026 · ATTENTION &amp; REASONING</div>
+          <div class="ti">Vision Transformers and Vision-Language Models</div>
+          <div class="de">Transformers replaced convolution's local sliding window with <b>self-attention</b>, letting a model
+          relate every part of an image to every other part at once. Vision-Language Models go further — reasoning about images
+          in natural language ("is this shelf compliant with the planogram?"), not just classifying them.</div>
+        </div>
+      </div>
+
+      <h2>How a CNN actually sees</h2>
+      <p>
+        A CNN's core operation is the <b>convolution</b>: a small grid of numbers (a filter) slides across the image, and at
+        each position multiplies itself against the pixels underneath and sums the result into a single number. One filter
+        might be tuned to detect vertical edges, another horizontal ones — exactly like a Hubel-Wiesel neuron. The output is a
+        "feature map" showing where that pattern appears.
+      </p>
+      <p>Stack these and the features grow in sophistication:</p>
+      <ul>
+        <li><b>Early layers</b> detect edges, colors, and angles.</li>
+        <li><b>Middle layers</b> combine those into corners, textures, and simple shapes.</li>
+        <li><b>Deep layers</b> assemble shapes into parts, then whole objects — "this is a bottle."</li>
+      </ul>
+      <p>
+        Between layers, <b>pooling</b> downsamples — keeping the strongest signal in each region so the network becomes robust
+        to small shifts in position. Because the same small filter is reused across the whole image (<b>weight sharing</b>), CNNs
+        are remarkably efficient — which is what lets one run live, in your browser, on a webcam feed.
+      </p>
+
+      <h2>CNNs vs. human vision</h2>
+      <p>
+        CNNs were inspired by biology but differ from it in important ways. Human vision is <b>predictive</b> — your brain
+        constantly guesses what it expects to see and checks incoming light against that guess (which is why optical illusions
+        fool us). It's <b>selective</b> — a tiny high-resolution fovea darts around a scene 3–4 times a second rather than
+        processing everything at once. And it carries a <b>world model</b> — you know an object still exists when it's hidden
+        behind another. A CNN, by contrast, is purely feedforward: it processes every pixel equally, has no memory between
+        frames unless you add it, and doesn't predict — it classifies. The frontier in 2026 is closing that gap by pairing fast
+        CNN detection with transformer-based reasoning that begins to approach human-like context and understanding.
+      </p>
+      <div class="callout">
+        <div class="ct">Why this matters for unattended retail</div>
+        <p>The winning architecture is a <b>hybrid</b>: lightweight CNNs at the edge (on the camera) for fast, cheap, reliable
+        detection — and a cloud reasoning layer that only sees the hard cases. That mirrors the edge-vs-cloud signal
+        prioritization problem I managed across millions of connected vehicles: you can't move all the raw data, so you decide
+        intelligently what to compute locally and what's worth escalating.</p>
+      </div>
+    </div>
+  </div><!-- /page-how -->
+
+  <footer>
+    Prototype by Mohamed Mattar · Built to understand the 365 Retail Markets problem space · Runs 100% locally, no data transmitted<br>
+    Model: COCO-SSD (MobileNet v2 backbone) · TensorFlow.js · Generic object classes mapped to demo SKUs
+  </footer>
+</div>
+
+<script>
+// page nav
+document.querySelectorAll("nav button").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const page = btn.dataset.page;
+    document.querySelectorAll("nav button").forEach(b => b.classList.toggle("active", b === btn));
+    document.querySelectorAll(".page").forEach(p => p.classList.toggle("active", p.id === "page-" + page));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+});
+
+const PRICE_MAP = {
+  bottle:   { price: 1.99, icon: "🧴", label: "Beverage" },
+  cup:      { price: 2.49, icon: "🥤", label: "Fountain Drink" },
+  "wine glass": { price: 3.99, icon: "🍷", label: "Glassware" },
+  banana:   { price: 0.69, icon: "🍌", label: "Banana" },
+  apple:    { price: 0.89, icon: "🍎", label: "Apple" },
+  orange:   { price: 0.99, icon: "🍊", label: "Orange" },
+  sandwich: { price: 5.49, icon: "🥪", label: "Sandwich" },
+  donut:    { price: 1.79, icon: "🍩", label: "Donut" },
+  "cell phone": { price: 0.00, icon: "📱", label: "Phone (not for sale)" },
+  book:     { price: 12.99, icon: "📕", label: "Book" },
+  cake:     { price: 4.25, icon: "🍰", label: "Pastry" },
+  pizza:    { price: 6.99, icon: "🍕", label: "Pizza Slice" },
+  "potted plant": { price: 8.50, icon: "🪴", label: "Plant" },
+  mouse:    { price: 14.99, icon: "🖱️", label: "Accessory" },
+  keyboard: { price: 29.99, icon: "⌨️", label: "Accessory" },
+  scissors: { price: 3.49, icon: "✂️", label: "Tool" },
+  remote:   { price: 9.99, icon: "🎮", label: "Remote" }
+};
+
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+const startBtn = document.getElementById("startBtn");
+const toggleBtn = document.getElementById("toggleBtn");
+const stageMsg = document.getElementById("stageMsg");
+const liveDot = document.getElementById("liveDot");
+const modelBadge = document.getElementById("modelBadge");
+const confSlider = document.getElementById("confSlider");
+const confVal = document.getElementById("confVal");
+const logEl = document.getElementById("log");
+
+let model = null, running = false, paused = false;
+let confThreshold = 0.6;
+let detCount = 0, sessionStart = null;
+const cart = new Map();          // key -> {count, conf, lastSeen}
+const PRESENCE_TIMEOUT = 1500;   // ms an item can be unseen before removed
+const ADD_FRAMES = 3;            // consecutive frames before adding (debounce)
+const pendingAdds = new Map();
+
+function logEvent(msg, cls="ev-sys") {
+  const t = new Date().toLocaleTimeString("en-US",{hour12:false});
+  const line = document.createElement("div");
+  line.innerHTML = `<span class="t">[${t}]</span> <span class="${cls}">${msg}</span>`;
+  logEl.prepend(line);
+  while (logEl.children.length > 40) logEl.removeChild(logEl.lastChild);
+}
+
+confSlider.addEventListener("input", () => {
+  confThreshold = confSlider.value / 100;
+  confVal.textContent = confSlider.value + "%";
+});
+
+// Load model
+cocoSsd.load({ base: "mobilenet_v2" }).then(m => {
+  model = m;
+  modelBadge.textContent = "● model ready (COCO-SSD)";
+  startBtn.disabled = false;
+  startBtn.textContent = "Start Camera";
+  logEvent("model loaded — COCO-SSD / MobileNet v2", "ev-sys");
+}).catch(e => {
+  modelBadge.textContent = "● model failed to load";
+  logEvent("model load error: " + e.message, "ev-remove");
+});
+
+startBtn.addEventListener("click", async () => {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+    video.srcObject = stream;
+    await video.play();
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    stageMsg.style.display = "none";
+    toggleBtn.style.display = "inline-block";
+    liveDot.classList.add("live");
+    running = true;
+    sessionStart = Date.now();
+    logEvent("camera live — edge inference started", "ev-add");
+    detectLoop();
+    setInterval(updateSessionTime, 1000);
+    setInterval(reapStaleItems, 500);
+  } catch (e) {
+    stageMsg.innerHTML = "Camera access denied or unavailable.<br>This demo needs webcam permission to run.";
+    logEvent("camera error: " + e.message, "ev-remove");
+  }
+});
+
+toggleBtn.addEventListener("click", () => {
+  paused = !paused;
+  toggleBtn.textContent = paused ? "Resume" : "Pause";
+  liveDot.classList.toggle("live", !paused);
+  if (!paused) detectLoop();
+});
+
+async function detectLoop() {
+  if (!running || paused) return;
+  const t0 = performance.now();
+  const predictions = await model.detect(video);
+  const t1 = performance.now();
+  document.getElementById("fps").textContent = Math.round(t1 - t0) + " ms / frame";
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const seenThisFrame = new Set();
+
+  predictions.forEach(p => {
+    if (p.score < confThreshold) return;
+    const [x, y, w, h] = p.bbox;
+    const known = PRICE_MAP[p.class];
+    const color = known ? "#00e08a" : "#8694a5";
+
+    // box
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 3;
+    ctx.strokeRect(x, y, w, h);
+    // label bg
+    const label = `${p.class} ${(p.score*100).toFixed(0)}%`;
+    ctx.font = "600 16px monospace";
+    const tw = ctx.measureText(label).width;
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y - 22, tw + 12, 22);
+    ctx.fillStyle = "#04130c";
+    ctx.fillText(label, x + 6, y - 6);
+
+    detCount++;
+    if (known) {
+      seenThisFrame.add(p.class);
+      handleSeen(p.class, p.score);
+    }
+  });
+
+  document.getElementById("detCount").textContent = detCount;
+
+  // update lastSeen for items still in frame
+  cart.forEach((v, k) => { if (seenThisFrame.has(k)) v.lastSeen = Date.now(); });
+
+  requestAnimationFrame(detectLoop);
+}
+
+function handleSeen(cls, score) {
+  if (cart.has(cls)) {
+    cart.get(cls).lastSeen = Date.now();
+    cart.get(cls).conf = score;
+    return;
+  }
+  // debounce: require a few consecutive frames before adding
+  const n = (pendingAdds.get(cls) || 0) + 1;
+  pendingAdds.set(cls, n);
+  if (n >= ADD_FRAMES) {
+    pendingAdds.delete(cls);
+    cart.set(cls, { conf: score, lastSeen: Date.now() });
+    const info = PRICE_MAP[cls];
+    logEvent(`+ added <b>${info.label}</b> ($${info.price.toFixed(2)}) @ ${(score*100).toFixed(0)}% conf`, "ev-add");
+    renderCart();
+  }
+}
+
+function reapStaleItems() {
+  const now = Date.now();
+  let changed = false;
+  cart.forEach((v, k) => {
+    if (now - v.lastSeen > PRESENCE_TIMEOUT) {
+      cart.delete(k);
+      const info = PRICE_MAP[k];
+      logEvent(`− removed <b>${info.label}</b> (left frame)`, "ev-remove");
+      changed = true;
+    }
+  });
+  if (changed) renderCart();
+}
+
+function renderCart() {
+  const itemsEl = document.getElementById("cartItems");
+  const emptyEl = document.getElementById("cartEmpty");
+  itemsEl.querySelectorAll(".cart-item").forEach(n => n.remove());
+
+  if (cart.size === 0) { emptyEl.style.display = "block"; }
+  else { emptyEl.style.display = "none"; }
+
+  let total = 0;
+  cart.forEach((v, k) => {
+    const info = PRICE_MAP[k];
+    total += info.price;
+    const row = document.createElement("div");
+    row.className = "cart-item";
+    row.innerHTML = `
+      <div class="icon">${info.icon}</div>
+      <div class="meta">
+        <div class="name">${info.label}</div>
+        <div class="conf">${k} · ${(v.conf*100).toFixed(0)}% confidence</div>
+      </div>
+      <div class="price">${info.price > 0 ? "$"+info.price.toFixed(2) : "—"}</div>`;
+    itemsEl.appendChild(row);
+  });
+
+  document.getElementById("total").textContent = "$" + total.toFixed(2);
+  document.getElementById("itemCount").textContent = cart.size + (cart.size === 1 ? " item" : " items");
+}
+
+function updateSessionTime() {
+  if (!sessionStart) return;
+  const s = Math.floor((Date.now() - sessionStart) / 1000);
+  document.getElementById("sessTime").textContent = s + "s";
+}
+</script>
+</body>
+</html>
