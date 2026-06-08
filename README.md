@@ -1,0 +1,3 @@
+# SmartCart Checkout
+
+Initializing repository...
